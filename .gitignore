@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 环境与密钥
+.env
+.env.*
+
+# 数据与上传（本地运行产物）
+backend/data/*.db
+backend/data/uploads/
+*.db
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+
+# 测试与运行时缓存
+.pytest_cache/
+.coverage
+
+# Milvus Lite 数据库目录
+backend/data/milvus.db/
+
+# AI 助手工作目录（非项目代码）
+.workbuddy/
