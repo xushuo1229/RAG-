@@ -5,16 +5,26 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { fetchUsers } from '@/api/auth'
 import { fetchDocuments, uploadDocument, removeDocument } from '@/api/documents'
+import { fetchStats } from '@/api/stats'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const auth = useAuthStore()
 
-const activeTab = ref('docs')
+const activeTab = ref('dashboard')
 const users = ref([])
 const docs = ref([])
 const loading = ref(false)
 const uploading = ref(false)
+
+// 文档分页与搜索
+const searchKey = ref('')
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+
+// 统计概览
+const stats = ref(null)
 
 const ACCEPT = '.txt,.md,.pdf,.docx'
 
@@ -25,20 +35,48 @@ function formatSize(bytes) {
 }
 
 async function loadDocs() {
-  docs.value = await fetchDocuments()
+  const data = await fetchDocuments({ search: searchKey.value, page: page.value, page_size: pageSize.value })
+  docs.value = data.items
+  total.value = data.total
 }
 async function loadUsers() {
   users.value = await fetchUsers()
 }
+async function loadStats() {
+  stats.value = await fetchStats()
+}
+
+function onSearch() {
+  page.value = 1
+  loadDocs()
+}
+
+function handlePageChange(p) {
+  page.value = p
+  loadDocs()
+}
+
+function handleSizeChange(s) {
+  pageSize.value = s
+  page.value = 1
+  loadDocs()
+}
 
 onMounted(async () => {
+  // 角色以服务端返回为准（/api/auth/me），防止本地 localStorage 被篡改绕过守卫
+  try {
+    await auth.refreshMe()
+  } catch {
+    // token 失效时由 axios 拦截器统一跳转登录页
+    return
+  }
   if (auth.role !== 'admin') {
     ElMessage.error('仅管理员可访问知识库管理')
     return router.push('/chat')
   }
   loading.value = true
   try {
-    await Promise.all([loadDocs(), loadUsers()])
+    await Promise.all([loadDocs(), loadUsers(), loadStats()])
   } finally {
     loading.value = false
   }
@@ -53,7 +91,7 @@ async function handleUpload(options) {
     } else {
       ElMessage.success(`《${doc.filename}》入库完成，共 ${doc.chunk_count} 个分块`)
     }
-    await loadDocs()
+    await Promise.all([loadDocs(), loadStats()])
   } catch {
     // 错误提示由 axios 拦截器统一处理
   } finally {
@@ -79,7 +117,7 @@ async function handleDelete(row) {
   )
   await removeDocument(row.id)
   ElMessage.success('文档已删除')
-  await loadDocs()
+  await Promise.all([loadDocs(), loadStats()])
 }
 </script>
 
@@ -102,6 +140,38 @@ async function handleDelete(row) {
     <main class="admin-main">
       <el-card class="main-card">
         <el-tabs v-model="activeTab">
+          <!-- 仪表盘 -->
+          <el-tab-pane label="使用统计" name="dashboard">
+            <div v-if="stats" class="stat-grid">
+              <div class="stat-card">
+                <div class="stat-num">{{ stats.document_count }}</div>
+                <div class="stat-label">知识库文档</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-num">{{ stats.user_count }}</div>
+                <div class="stat-label">注册用户</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-num">{{ stats.conversation_count }}</div>
+                <div class="stat-label">会话总数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-num">{{ stats.message_count }}</div>
+                <div class="stat-label">消息总数</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-num">{{ stats.cached_count }}</div>
+                <div class="stat-label">语义缓存命中</div>
+              </div>
+              <div class="stat-card highlight">
+                <div class="stat-num">{{ stats.cache_hit_rate }}%</div>
+                <div class="stat-label">缓存命中率</div>
+              </div>
+            </div>
+            <el-empty v-else description="暂无统计数据" :image-size="80" />
+          </el-tab-pane>
+
+          <!-- 知识库文档 -->
           <el-tab-pane label="知识库文档" name="docs">
             <div class="toolbar">
               <el-upload
@@ -114,8 +184,17 @@ async function handleDelete(row) {
                   上传文档
                 </el-button>
               </el-upload>
+              <el-input
+                v-model="searchKey"
+                class="search-input"
+                placeholder="按文件名搜索"
+                clearable
+                @keyup.enter="onSearch"
+                @clear="onSearch"
+              />
+              <el-button @click="onSearch">搜索</el-button>
               <el-button @click="loadDocs">刷新</el-button>
-              <span class="hint">支持 txt / md / pdf / docx，上传后自动解析、切分、向量化</span>
+              <span class="hint">支持 txt / md / pdf / docx</span>
             </div>
 
             <el-table :data="docs" v-loading="loading" size="default">
@@ -144,8 +223,21 @@ async function handleDelete(row) {
                 </template>
               </el-table-column>
             </el-table>
+
+            <div class="pager">
+              <el-pagination
+                :current-page="page"
+                :page-size="pageSize"
+                :page-sizes="[10, 20, 50]"
+                :total="total"
+                layout="total, sizes, prev, pager, next, jumper"
+                @current-change="handlePageChange"
+                @size-change="handleSizeChange"
+              />
+            </div>
           </el-tab-pane>
 
+          <!-- 注册用户 -->
           <el-tab-pane :label="`注册用户（${users.length}）`" name="users">
             <el-table :data="users" v-loading="loading" size="default">
               <el-table-column prop="id" label="ID" width="60" />
@@ -208,8 +300,44 @@ async function handleDelete(row) {
   gap: 12px;
   margin-bottom: 16px;
 }
+.search-input {
+  width: 220px;
+}
 .hint {
   font-size: 12px;
+  color: #909399;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 8px 0;
+}
+.stat-card {
+  padding: 20px;
+  border-radius: 8px;
+  background: #f5f7fa;
+  text-align: center;
+}
+.stat-card.highlight {
+  background: #ecf5ff;
+}
+.stat-num {
+  font-size: 28px;
+  font-weight: 600;
+  color: #303133;
+}
+.stat-card.highlight .stat-num {
+  color: #409eff;
+}
+.stat-label {
+  margin-top: 6px;
+  font-size: 13px;
   color: #909399;
 }
 </style>

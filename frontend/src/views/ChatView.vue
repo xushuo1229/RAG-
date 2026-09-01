@@ -16,6 +16,7 @@ const messages = ref([])
 const input = ref('')
 const sending = ref(false)
 const msgBoxRef = ref(null)
+const activeRef = ref(null)
 
 const pwdDialog = ref(false)
 const pwdForm = reactive({ old_password: '', new_password: '', confirm: '' })
@@ -63,7 +64,7 @@ async function send() {
   input.value = ''
   messages.value.push({ role: 'user', content: question, sources: [] })
 
-  const assistantMsg = reactive({ role: 'assistant', content: '', sources: [], cached: false })
+  const assistantMsg = reactive({ role: 'assistant', content: '', sources: [], cached: false, related: [] })
   messages.value.push(assistantMsg)
   sending.value = true
   scrollToBottom()
@@ -79,6 +80,9 @@ async function send() {
         onDelta: (delta) => {
           assistantMsg.content += delta
           scrollToBottom()
+        },
+        onRelated: (list) => {
+          assistantMsg.related = list
         },
         onDone: (data) => {
           if (!currentConvId.value) currentConvId.value = data.conversation_id
@@ -114,6 +118,35 @@ function handleLogout() {
   auth.clearSession()
   ElMessage.success('已退出登录')
   router.push('/login')
+}
+
+// 把回答中的引用标记 [n] 拆成文本/引用片段，用于高亮渲染
+function parseCitations(text) {
+  const parts = []
+  const re = /\[(\d+)\]/g
+  let last = 0
+  let m
+  while ((m = re.exec(text))) {
+    if (m.index > last) parts.push({ type: 'text', text: text.slice(last, m.index) })
+    parts.push({ type: 'cite', n: Number(m[1]) })
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push({ type: 'text', text: text.slice(last) })
+  return parts
+}
+
+// 点击引用标记：高亮对应来源并滚动到可见位置
+function highlightSource(i, n) {
+  activeRef.value = { i, n }
+  nextTick(() => {
+    document.getElementById(`src-${i}-${n - 1}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  })
+}
+
+// 点击相似问题，填入输入框并重新提问
+function askRelated(q) {
+  input.value = q
+  send()
 }
 </script>
 
@@ -169,7 +202,12 @@ function handleLogout() {
 
           <div v-for="(m, i) in messages" :key="i" class="msg-row" :class="m.role">
             <div class="bubble">
-              <div class="content">{{ m.content }}</div>
+              <div class="content">
+                <template v-for="(seg, si) in parseCitations(m.content)" :key="si">
+                  <span v-if="seg.type === 'cite'" class="cite" @click="highlightSource(i, seg.n)">[{{ seg.n }}]</span>
+                  <template v-else>{{ seg.text }}</template>
+                </template>
+              </div>
 
               <div v-if="m.role === 'assistant' && m.sources.length" class="sources">
                 <span class="src-label">引用来源：</span>
@@ -181,12 +219,31 @@ function handleLogout() {
                   trigger="hover"
                 >
                   <template #reference>
-                    <el-tag size="small" type="info" class="src-tag">
+                    <el-tag
+                      size="small"
+                      type="info"
+                      class="src-tag"
+                      :class="{ 'src-active': activeRef && activeRef.i === i && activeRef.n === si + 1 }"
+                    >
+                      <span :id="`src-${i}-${si}`" class="src-num">[{{ si + 1 }}]</span>
                       {{ s.filename }}<span class="score">({{ s.score }})</span>
                     </el-tag>
                   </template>
                   <div class="src-text">{{ s.text }}</div>
                 </el-popover>
+              </div>
+
+              <div v-if="m.role === 'assistant' && m.related && m.related.length" class="related">
+                <span class="rel-label">相似问题：</span>
+                <el-tag
+                  v-for="(q, qi) in m.related"
+                  :key="qi"
+                  size="small"
+                  class="rel-tag"
+                  @click="askRelated(q)"
+                >
+                  {{ q }}
+                </el-tag>
               </div>
 
               <div v-if="m.role === 'assistant' && m.cached" class="cached-tag">
@@ -369,6 +426,15 @@ function handleLogout() {
   line-height: 1.6;
   font-size: 14px;
 }
+.cite {
+  color: #409eff;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.cite:hover {
+  text-decoration: underline;
+}
 .sources {
   margin-top: 8px;
   display: flex;
@@ -383,6 +449,16 @@ function handleLogout() {
 .src-tag {
   cursor: pointer;
 }
+.src-num {
+  color: #409eff;
+  font-weight: 600;
+  margin-right: 2px;
+}
+.src-tag.src-active {
+  border-color: #409eff;
+  background: #ecf5ff;
+  color: #409eff;
+}
 .score {
   color: #999;
   margin-left: 2px;
@@ -391,6 +467,20 @@ function handleLogout() {
   font-size: 13px;
   line-height: 1.5;
   color: #606266;
+}
+.related {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.rel-label {
+  font-size: 12px;
+  color: #909399;
+}
+.rel-tag {
+  cursor: pointer;
 }
 .cached-tag {
   margin-top: 8px;

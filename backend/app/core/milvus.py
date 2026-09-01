@@ -16,11 +16,10 @@ from pymilvus import (
     RRFRanker,
 )
 
-from app.core.config import settings
+from app.core.config import EMBED_DIM, settings
 
 DOC_COLLECTION = "document_chunks"
 CACHE_COLLECTION = "semantic_cache"
-EMBED_DIM = 1024
 MAX_TEXT_LEN = 65535
 
 
@@ -175,3 +174,31 @@ def cache_insert(query: str, answer: str, query_embedding: list[float]) -> None:
         CACHE_COLLECTION,
         [{"query": query, "answer": answer, "dense": query_embedding}],
     )
+
+
+def recommend_questions(
+    query_embedding: list[float], top_k: int = 3, threshold: float = 0.65
+) -> list[str]:
+    """在语义缓存里检索与当前问题相近的历史提问，用于「相似问题推荐」。"""
+    client = get_milvus_client()
+    result = client.search(
+        CACHE_COLLECTION,
+        data=[query_embedding],
+        anns_field="dense",
+        limit=top_k + 2,
+        output_fields=["query"],
+    )
+    if not result or not result[0]:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for hit in result[0]:
+        if hit["distance"] < threshold:
+            continue
+        q = hit["entity"].get("query")
+        if q and q not in seen:
+            seen.add(q)
+            out.append(q)
+        if len(out) >= top_k:
+            break
+    return out

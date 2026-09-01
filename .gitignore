@@ -24,6 +24,7 @@ frontend/dist/
 # 测试与运行时缓存
 .pytest_cache/
 .coverage
+*.log
 
 # Milvus Lite 数据库目录
 backend/data/milvus.db/

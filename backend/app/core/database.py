@@ -8,8 +8,12 @@ from app.core.config import settings
 
 engine = create_engine(
     f"sqlite:///{settings.sqlite_abs}",
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 30},
     pool_pre_ping=True,
+    # 高并发（压测 100 用户）下的兜底容量：短事务为主，正常远用不满
+    pool_size=20,
+    max_overflow=30,
+    pool_timeout=15,
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -20,6 +24,7 @@ class Base(DeclarativeBase):
 
 
 def get_db() -> Generator[Session, None, None]:
+    """FastAPI 依赖：为每个请求提供一个数据库会话，用完自动关闭。"""
     db = SessionLocal()
     try:
         yield db

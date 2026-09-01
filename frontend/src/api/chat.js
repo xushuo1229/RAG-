@@ -51,6 +51,7 @@ export async function askStream({ question, conversation_id }, handlers = {}) {
     handlers.onEvent?.(type, data)
     if (type === 'sources') handlers.onSources?.(data)
     else if (type === 'delta') handlers.onDelta?.(data)
+    else if (type === 'related') handlers.onRelated?.(data)
     else if (type === 'done') handlers.onDone?.(data)
     else if (type === 'error') handlers.onError?.(data)
   }

@@ -1,10 +1,9 @@
 """文本向量化：调用阿里云百炼 text-embedding-v4（OpenAI 兼容端点）。"""
 import httpx
 
-from app.core.config import settings
+from app.core.config import EMBED_DIM, settings
 
 BATCH_SIZE = 16
-EMBED_DIM = 1024
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:

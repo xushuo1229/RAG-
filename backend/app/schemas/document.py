@@ -24,3 +24,10 @@ class DocumentOut(BaseModel):
             error=doc.error or "",
             created_at=doc.created_at.strftime("%Y-%m-%d %H:%M") if doc.created_at else "",
         )
+
+
+class DocumentListResponse(BaseModel):
+    """文档分页列表响应：总数 + 当前页条目。"""
+
+    total: int
+    items: list[DocumentOut]

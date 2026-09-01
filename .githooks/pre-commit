@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# pre-commit 提交闸门：自动运行「单元测试 + 静态安全扫描」，无需手动触发。
+# 任一失败 -> 拒绝提交；全部通过 -> 放行。
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# 定位可用的 Python（优先项目测试环境，退化到系统 python / py）
+PY=""
+for c in \
+  "C:/Users/24866/.workbuddy/binaries/python/envs/default/Scripts/python.exe" \
+  "python" "python3" "py"; do
+  if "$c" -c 'import sys' >/dev/null 2>&1; then
+    PY="$c"
+    break
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "[pre-commit] 未找到可用的 Python，拒绝提交" >&2 || true
+  exit 1
+fi
+
+# 1/2 单元测试
+echo "[pre-commit] 1/2 运行单元测试..." >&2 || true
+( cd backend && "$PY" -m pytest tests/ -v 1>&2 ) || {
+  echo "[pre-commit] 拒绝提交：单元测试未全部通过" >&2 || true
+  exit 1
+}
+
+# 2/2 静态安全扫描（确定性规则，无需大模型）
+echo "[pre-commit] 2/2 运行静态安全扫描..." >&2 || true
+"$PY" .githooks/security_scan.py || {
+  echo "[pre-commit] 拒绝提交：静态安全扫描发现高危问题（见上方）" >&2 || true
+  exit 1
+}
+
+echo "[pre-commit] 检查通过：单元测试 + 静态安全扫描均通过，允许提交" >&2 || true
+exit 0

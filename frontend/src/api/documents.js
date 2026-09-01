@@ -1,7 +1,7 @@
 import request from './request'
 
-export function fetchDocuments() {
-  return request.get('/documents')
+export function fetchDocuments(params = {}) {
+  return request.get('/documents', { params })
 }
 
 export function uploadDocument(file) {
